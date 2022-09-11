@@ -146,11 +146,11 @@ func main() {
 func getDSN() string {
 	return fmt.Sprintf(
 		"%s:%s@tcp(%s:%s)/%s?charset=utf8&parseTime=True&loc=Local",
-		getSecretWithhEnvFallback("db_user", "DB_USER"),
-		getSecretWithhEnvFallback("db_password", "DB_PASSWORD"),
-		os.Getenv("DB_HOST"),
-		os.Getenv("DB_PORT"),
-		getSecretWithhEnvFallback("db_name", "DB_NAME"),
+		getSecretWithhEnvFallback("rds_username", "RDS_USERNAME"),
+		getSecretWithhEnvFallback("rds_password", "RDS_PASSWORD"),
+		os.Getenv("RDS_HOSTNAME"),
+		os.Getenv("RDS_PORT"),
+		getSecretWithhEnvFallback("rds_db_name", "RDS_DB_NAME"),
 	)
 }
 
