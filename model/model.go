@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"gorm.io/datatypes"
-	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
@@ -282,7 +282,7 @@ type GachaRequest struct {
 }
 
 func SetupDB(dsn string) {
-	db, err := gorm.Open(mysql.Open(dsn))
+	db, err := gorm.Open(postgres.Open(dsn))
 	if err != nil {
 		panic(err)
 	}

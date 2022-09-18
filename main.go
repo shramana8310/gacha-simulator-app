@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"gacha-simulator/handler"
 	"gacha-simulator/job"
 	"gacha-simulator/model"
@@ -16,12 +15,9 @@ import (
 	"github.com/go-oauth2/oauth2/v4/models"
 	"github.com/go-oauth2/oauth2/v4/server"
 	"github.com/google/uuid"
-	secrets "github.com/ijustfool/docker-secrets"
 	"github.com/joho/godotenv"
 	oauth2gorm "src.techknowlogick.com/oauth2-gorm"
 )
-
-var dockerSecrets *secrets.DockerSecrets
 
 func main() {
 	dsn := getDSN()
@@ -30,19 +26,19 @@ func main() {
 
 	manager := manage.NewDefaultManager()
 
-	clientStore := oauth2gorm.NewClientStore(oauth2gorm.NewConfig(dsn, oauth2gorm.MySQL, "oauth2_clients"))
+	clientStore := oauth2gorm.NewClientStore(oauth2gorm.NewConfig(dsn, oauth2gorm.PostgreSQL, "oauth2_clients"))
 	ctx := context.Background()
 	clientStore.Create(ctx, &models.Client{
 		ID:     os.Getenv("OAUTH_PUBLIC_CLIENT_ID"),
 		Domain: os.Getenv("OAUTH_PUBLIC_CLIENT_DOMAIN"),
 	})
 	clientStore.Create(ctx, &models.Client{
-		ID:     getSecretWithhEnvFallback("oauth_private_client_id", "OAUTH_PRIVATE_CLIENT_ID"),
-		Secret: getSecretWithhEnvFallback("oauth_private_client_secret", "OAUTH_PRIVATE_CLIENT_SECRET"),
+		ID:     os.Getenv("OAUTH_PRIVATE_CLIENT_ID"),
+		Secret: os.Getenv("OAUTH_PRIVATE_CLIENT_SECRET"),
 	})
 	manager.MapClientStorage(clientStore)
 
-	tokenStore := oauth2gorm.NewTokenStore(oauth2gorm.NewConfig(dsn, oauth2gorm.MySQL, "oauth2_token"), 600)
+	tokenStore := oauth2gorm.NewTokenStore(oauth2gorm.NewConfig(dsn, oauth2gorm.PostgreSQL, "oauth2_token"), 600)
 	manager.MapTokenStorage(tokenStore)
 
 	srv := server.NewServer(&server.Config{
@@ -129,7 +125,7 @@ func main() {
 					return
 				}
 				clientID := ti.(oauth2.TokenInfo).GetClientID()
-				privateClientID := getSecretWithhEnvFallback("oauth_private_client_id", "OAUTH_PRIVATE_CLIENT_ID")
+				privateClientID := os.Getenv("OAUTH_PRIVATE_CLIENT_ID")
 				if clientID != privateClientID {
 					ctx.AbortWithStatus(403)
 					return
@@ -144,22 +140,7 @@ func main() {
 }
 
 func getDSN() string {
-	return fmt.Sprintf(
-		"%s:%s@tcp(%s:%s)/%s?charset=utf8&parseTime=True&loc=Local",
-		getSecretWithhEnvFallback("rds_username", "RDS_USERNAME"),
-		getSecretWithhEnvFallback("rds_password", "RDS_PASSWORD"),
-		os.Getenv("RDS_HOSTNAME"),
-		os.Getenv("RDS_PORT"),
-		getSecretWithhEnvFallback("rds_db_name", "RDS_DB_NAME"),
-	)
-}
-
-func getSecretWithhEnvFallback(secretKey, envKey string) string {
-	if secretValue, _ := dockerSecrets.Get(secretKey); secretValue != "" {
-		return secretValue
-	} else {
-		return os.Getenv(envKey)
-	}
+	return os.Getenv("DATABASE_URL")
 }
 
 func init() {
@@ -174,6 +155,4 @@ func init() {
 	}
 	godotenv.Load(".env." + env)
 	godotenv.Load()
-
-	dockerSecrets, _ = secrets.NewDockerSecrets("")
 }
