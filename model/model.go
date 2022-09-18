@@ -1,11 +1,14 @@
 package model
 
 import (
+	"log"
+	"os"
 	"time"
 
 	"gorm.io/datatypes"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 var DB *gorm.DB
@@ -282,7 +285,15 @@ type GachaRequest struct {
 }
 
 func SetupDB(dsn string) {
-	db, err := gorm.Open(postgres.Open(dsn))
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
+		Logger: logger.New(
+			log.New(os.Stdout, "\r\n", log.LstdFlags),
+			logger.Config{
+				SlowThreshold: time.Second,
+				LogLevel:      logger.Info,
+				Colorful:      true,
+			}),
+	})
 	if err != nil {
 		panic(err)
 	}
