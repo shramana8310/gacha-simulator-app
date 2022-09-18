@@ -241,7 +241,6 @@ func GameTitleGachasByUser(results *[]model.Result, gameTitleSlug, userID string
 	return func(db *gorm.DB) *gorm.DB {
 		return db.Model(results).
 			Joins("JOIN game_titles on game_titles.id=results.game_title_id").
-			Order("results.time desc").
 			Where("game_titles.slug = ? AND results.user_id = ?", gameTitleSlug, userID).
 			Preload("GameTitle.Translations")
 	}
@@ -274,6 +273,7 @@ func GetGachas(c *gin.Context) {
 	}
 	if err := model.DB.
 		Scopes(GameTitleGachasByUser(&results, gameTitleSlug, userID)).
+		Order("results.time desc").
 		Offset(offset).
 		Limit(count).
 		Omit("Items", "Request").
