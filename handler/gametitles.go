@@ -84,8 +84,8 @@ func GetItems(c *gin.Context) {
 		Preload("Tier.Translations").
 		Preload("Translations").
 		Distinct().
-		Find(&items).
 		Limit(100).
+		Find(&items).
 		Error; err != nil {
 		c.Status(http.StatusInternalServerError)
 		return
