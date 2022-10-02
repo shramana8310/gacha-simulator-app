@@ -101,6 +101,7 @@ func main() {
 			gameTitlesGroup.Use(validateBearerToken)
 			gameTitlesGroup.GET("", handler.GetGameTitles)
 			gameTitlesGroup.GET("/:gameTitleSlug", handler.GetGameTitle)
+			gameTitlesGroup.GET("/:gameTitleSlug/presets", handler.GetPresets)
 			gameTitlesGroup.GET("/:gameTitleSlug/tiers", handler.GetTiers)
 			gameTitlesGroup.GET("/:gameTitleSlug/items", handler.GetItems)
 			gameTitlesGroup.GET("/:gameTitleSlug/pricings", handler.GetPricings)

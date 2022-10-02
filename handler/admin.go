@@ -15,6 +15,7 @@ type GameTitleWrapper struct {
 	Pricings  []model.Pricing  `json:"pricings"`
 	Policies  []model.Policies `json:"policies"`
 	Plans     []model.Plan     `json:"plans"`
+	Presets   []model.Preset   `json:"presets"`
 }
 
 type GameTitles struct {
@@ -53,6 +54,9 @@ func PostGameTitlesBulk(ctx *gin.Context) {
 				return err
 			}
 			if err := tx.Create(&gameTitleWrapper.Plans).Error; err != nil {
+				return err
+			}
+			if err := tx.Create(&gameTitleWrapper.Presets).Error; err != nil {
 				return err
 			}
 			return nil

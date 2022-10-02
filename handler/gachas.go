@@ -14,6 +14,203 @@ import (
 	"gorm.io/gorm"
 )
 
+type ResultResponse struct {
+	*model.Result
+	Items                []model.Item `json:"items"`
+	RemainingWantedItems []model.Item `json:"remainingWantedItems"`
+	RemainingWantedTiers []model.Tier `json:"remainingWantedTiers"`
+}
+
+type PatchGachaRequest struct {
+	Public bool `json:"public"`
+}
+
+func PostGachas(c *gin.Context) {
+	var gachaRequest model.GachaRequest
+	c.Bind(&gachaRequest)
+	request := mapRequest(gachaRequest)
+
+	err := gacha.Validate(request)
+	if err != nil {
+		c.Status(http.StatusBadRequest)
+		return
+	}
+
+	result, err := gacha.Execute(request)
+	if err != nil {
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+
+	resultModel, err := mapResult(result, request, gachaRequest, c)
+	if err != nil {
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+
+	if err := model.DB.Create(resultModel).Error; err != nil {
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+
+	resultResponse, err := mapResultResponse(resultModel, c)
+	if err != nil {
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+
+	c.JSON(http.StatusOK, resultResponse)
+}
+
+type ResultResponseExt struct {
+	ResultResponse
+	NextAvailable bool `json:"nextAvailable"`
+	NextID        uint `json:"nextId"`
+	PrevAvailable bool `json:"prevAvailable"`
+	PrevID        uint `json:"prevId"`
+}
+
+func GetGacha(c *gin.Context) {
+	resultID := c.Param("resultID")
+	var result model.Result
+	if err := model.DB.
+		Preload("GameTitle.Translations").
+		First(&result, resultID).
+		Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+	accessToken, _ := c.Get("access_token")
+	userID := accessToken.(oauth2.TokenInfo).GetUserID()
+	if !result.Public && result.UserID != userID {
+		c.Status(http.StatusForbidden)
+		return
+	}
+
+	preferred := getPreferredLanguage(c)
+	i := getTranslationIndex(preferred, result.GameTitle)
+	result.GameTitle.GameTitleTranslatable = result.GameTitle.Translations[i].GameTitleTranslatable
+
+	resultResponse, err := mapResultResponse(&result, c)
+	if err != nil {
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+
+	if result.UserID == userID {
+		var nextResults []model.Result
+		if err := model.DB.
+			Where("time < ? AND game_title_id = ? AND user_id = ?", result.Time, result.GameTitleID, result.UserID).
+			Order("time DESC").
+			Limit(1).
+			Find(&nextResults).
+			Error; err != nil {
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+		nextAvailable := len(nextResults) > 0
+		var nextID uint
+		if len(nextResults) > 0 {
+			nextID = nextResults[0].ID
+		}
+
+		var prevResults []model.Result
+		if err := model.DB.
+			Where("time > ? AND game_title_id = ? AND user_id = ?", result.Time, result.GameTitleID, result.UserID).
+			Order("time ASC").
+			Limit(1).
+			Find(&prevResults).
+			Error; err != nil {
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+		prevAvailable := len(prevResults) > 0
+		var prevID uint
+		if len(prevResults) > 0 {
+			prevID = prevResults[0].ID
+		}
+
+		c.JSON(http.StatusOK, ResultResponseExt{
+			ResultResponse: *resultResponse,
+			NextAvailable:  nextAvailable,
+			NextID:         nextID,
+			PrevAvailable:  prevAvailable,
+			PrevID:         prevID,
+		})
+		return
+	} else {
+		c.JSON(http.StatusOK, resultResponse)
+		return
+	}
+}
+
+func PatchGacha(c *gin.Context) {
+	resultID := c.Param("resultID")
+	var patchGachaRequest PatchGachaRequest
+	c.Bind(&patchGachaRequest)
+	accessToken, _ := c.Get("access_token")
+	userID := accessToken.(oauth2.TokenInfo).GetUserID()
+
+	var result model.Result
+	if err := model.DB.
+		Model(&model.Result{}).
+		Where("id = ? AND user_id = ?", resultID, userID).
+		First(&result).
+		Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+
+	if err := model.DB.
+		Model(&model.Result{}).
+		Where("id = ? AND user_id = ?", resultID, userID).
+		Update("public", patchGachaRequest.Public).
+		Error; err != nil {
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+
+	c.Status(http.StatusNoContent)
+}
+
+func DeleteGacha(c *gin.Context) {
+	resultID := c.Param("resultID")
+	accessToken, _ := c.Get("access_token")
+	userID := accessToken.(oauth2.TokenInfo).GetUserID()
+
+	var result model.Result
+	if err := model.DB.
+		Model(&model.Result{}).
+		Where("id = ? AND user_id = ?", resultID, userID).
+		First(&result).
+		Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+
+	if err := model.DB.
+		Where("id = ? AND user_id = ?", resultID, userID).
+		Delete(&model.Result{}).
+		Error; err != nil {
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+
+	c.Status(http.StatusNoContent)
+}
+
 func mapRequest(gachaRequest model.GachaRequest) gacha.Request {
 	var tiers []gacha.Tier
 	for _, tier := range gachaRequest.Tiers {
@@ -133,57 +330,70 @@ func mapRequest(gachaRequest model.GachaRequest) gacha.Request {
 	}
 }
 
-func PostGachas(c *gin.Context) {
-	preferred := getPreferredLanguage(c)
-	var gachaRequest model.GachaRequest
-	c.Bind(&gachaRequest)
+func mapResult(
+	result gacha.Result,
+	request gacha.Request,
+	gachaRequest model.GachaRequest,
+	c *gin.Context,
+) (*model.Result, error) {
+	requestJSON, err := json.Marshal(request)
+	if err != nil {
+		return nil, err
+	}
+	itemIDs := make([]uint, len(result.Items))
+	for i, item := range result.Items {
+		itemIDs[i] = item.ID
+	}
+	itemIDsJSON, err := json.Marshal(itemIDs)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now()
 
+	preferred := getPreferredLanguage(c)
 	var gameTitle model.GameTitle
 	if err := model.DB.
 		Preload("Translations").
 		First(&gameTitle, gachaRequest.GameTitle.ID).
 		Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.Status(http.StatusBadRequest)
-			return
-		}
-		c.Status(http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 	i := getTranslationIndex(preferred, gameTitle)
 	gameTitle.GameTitleTranslatable = gameTitle.Translations[i].GameTitleTranslatable
-
-	request := mapRequest(gachaRequest)
-	if err := gacha.Validate(request); err != nil {
-		c.Status(http.StatusBadRequest)
-		return
+	accessToken, ok := c.Get("access_token")
+	if !ok {
+		return nil, err
 	}
-	result, err := gacha.Execute(request)
+	userID := accessToken.(oauth2.TokenInfo).GetUserID()
+	return &model.Result{
+		Request:       datatypes.JSON(requestJSON),
+		ItemIDs:       datatypes.JSON(itemIDsJSON),
+		GoalsAchieved: result.GoalsAchieved,
+		MoneySpent:    result.MoneySpent,
+		Time:          now,
+		GameTitle:     &gameTitle,
+		UserID:        userID,
+		Public:        false,
+	}, nil
+}
+
+func mapResultResponse(
+	result *model.Result,
+	c *gin.Context,
+) (*ResultResponse, error) {
+	preferred := getPreferredLanguage(c)
+
+	uniqueItemIDs, err := makeUniqueItemIDs(result)
 	if err != nil {
-		c.Status(http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 
-	itemIDSet := make(map[uint]bool)
-	itemIDs := make([]uint, len(result.Items))
-	for i, item := range result.Items {
-		itemIDSet[item.ID] = true
-		itemIDs[i] = item.ID
-	}
-	itemIDsUnique := make([]uint, 0)
-	items := make([]model.Item, 0)
-	for itemID := range itemIDSet {
-		itemIDsUnique = append(itemIDsUnique, itemID)
-	}
+	var items []model.Item
 	if err := model.DB.
-		Model(&model.Item{}).
-		Preload("Tier.Translations").
-		Preload("Translations").
-		Where("id IN ?", itemIDsUnique).
+		Scopes(itemsByIDs(uniqueItemIDs)).
 		Find(&items).
 		Error; err != nil {
-		c.Status(http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 	for i := 0; i < len(items); i++ {
 		j := getTranslationIndex(preferred, items[i])
@@ -192,127 +402,104 @@ func PostGachas(c *gin.Context) {
 		items[i].Tier.TierTranslatable = items[i].Tier.Translations[k].TierTranslatable
 	}
 
-	itemIDsJSON, _ := json.Marshal(itemIDs)
-	itemsJSON, _ := json.Marshal(items)
-	requestJSON, _ := json.Marshal(request)
-	now := time.Now()
-
-	accessToken, _ := c.Get("access_token")
-	userID := accessToken.(oauth2.TokenInfo).GetUserID()
-
-	resultModel := model.Result{
-		Request:       datatypes.JSON(requestJSON),
-		ItemIDs:       datatypes.JSON(itemIDsJSON),
-		Items:         datatypes.JSON(itemsJSON),
-		ItemsResponse: items,
-		GoalsAchieved: result.GoalsAchieved,
-		MoneySpent:    result.MoneySpent,
-		Time:          now,
-		GameTitle:     &gameTitle,
-		UserID:        userID,
-		Public:        false,
-	}
-	if err := model.DB.Create(&resultModel).Error; err != nil {
-		c.Status(http.StatusInternalServerError)
-		return
+	var request gacha.Request
+	if err := json.Unmarshal(result.Request, &request); err != nil {
+		return nil, err
 	}
 
-	c.JSON(http.StatusOK, resultModel)
-}
-
-func GetGacha(c *gin.Context) {
-	resultID := c.Param("resultID")
-	var result model.Result
-	if err := model.DB.
-		Preload("GameTitle.Translations").
-		First(&result, resultID).
-		Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.Status(http.StatusNotFound)
-			return
+	remainingWantedItemIDs := make([]uint, 0)
+	if request.Plan.ItemGoals {
+		for wantedItemID := range request.Plan.WantedItems {
+			found := false
+			for _, item := range items {
+				if item.ID == wantedItemID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				remainingWantedItemIDs = append(remainingWantedItemIDs, wantedItemID)
+			}
 		}
-		c.Status(http.StatusInternalServerError)
-		return
 	}
-	accessToken, _ := c.Get("access_token")
-	userID := accessToken.(oauth2.TokenInfo).GetUserID()
-	if !result.Public && result.UserID != userID {
-		c.Status(http.StatusForbidden)
-		return
-	}
-
-	preferred := getPreferredLanguage(c)
-	i := getTranslationIndex(preferred, result.GameTitle)
-	result.GameTitle.GameTitleTranslatable = result.GameTitle.Translations[i].GameTitleTranslatable
-	itemsJSON, _ := result.Items.MarshalJSON()
-	json.Unmarshal(itemsJSON, &result.ItemsResponse)
-
-	c.JSON(http.StatusOK, result)
-}
-
-type PatchGachaRequest struct {
-	Public bool `json:"public"`
-}
-
-func PatchGacha(c *gin.Context) {
-	resultID := c.Param("resultID")
-	var patchGachaRequest PatchGachaRequest
-	c.Bind(&patchGachaRequest)
-	accessToken, _ := c.Get("access_token")
-	userID := accessToken.(oauth2.TokenInfo).GetUserID()
-
-	var result model.Result
+	var remainingWantedItems []model.Item
 	if err := model.DB.
-		Model(&model.Result{}).
-		Where("id = ? AND user_id = ?", resultID, userID).
-		First(&result).
+		Scopes(itemsByIDs(remainingWantedItemIDs)).
+		Find(&remainingWantedItems).
 		Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.Status(http.StatusNotFound)
-			return
+		return nil, err
+	}
+	for i := 0; i < len(remainingWantedItems); i++ {
+		j := getTranslationIndex(preferred, remainingWantedItems[i])
+		remainingWantedItems[i].ItemTranslatable = remainingWantedItems[i].Translations[j].ItemTranslatable
+		k := getTranslationIndex(preferred, remainingWantedItems[i].Tier)
+		remainingWantedItems[i].Tier.TierTranslatable = remainingWantedItems[i].Tier.Translations[k].TierTranslatable
+	}
+
+	remainingWantedTierIDs := make([]uint, 0)
+	if request.Plan.TierGoals {
+		for wantedTierID := range request.Plan.WantedTiers {
+			found := false
+			for _, item := range items {
+				if item.Tier.ID == wantedTierID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				remainingWantedTierIDs = append(remainingWantedTierIDs, wantedTierID)
+			}
 		}
-		c.Status(http.StatusInternalServerError)
-		return
 	}
-
+	var remainingWantedTiers []model.Tier
 	if err := model.DB.
-		Model(&model.Result{}).
-		Where("id = ? AND user_id = ?", resultID, userID).
-		Update("public", patchGachaRequest.Public).
+		Scopes(tiersByIDs(remainingWantedTierIDs)).
+		Find(&remainingWantedTiers).
 		Error; err != nil {
-		c.Status(http.StatusInternalServerError)
-		return
+		return nil, err
+	}
+	for i := 0; i < len(remainingWantedTiers); i++ {
+		j := getTranslationIndex(preferred, remainingWantedTiers[i])
+		remainingWantedTiers[i].TierTranslatable = remainingWantedTiers[i].Translations[j].TierTranslatable
 	}
 
-	c.Status(http.StatusNoContent)
+	return &ResultResponse{
+		Result:               result,
+		Items:                items,
+		RemainingWantedItems: remainingWantedItems,
+		RemainingWantedTiers: remainingWantedTiers,
+	}, nil
 }
 
-func DeleteGacha(c *gin.Context) {
-	resultID := c.Param("resultID")
-	accessToken, _ := c.Get("access_token")
-	userID := accessToken.(oauth2.TokenInfo).GetUserID()
-
-	var result model.Result
-	if err := model.DB.
-		Model(&model.Result{}).
-		Where("id = ? AND user_id = ?", resultID, userID).
-		First(&result).
-		Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.Status(http.StatusNotFound)
-			return
-		}
-		c.Status(http.StatusInternalServerError)
-		return
+func itemsByIDs(itemIDs []uint) func(db *gorm.DB) *gorm.DB {
+	return func(db *gorm.DB) *gorm.DB {
+		return db.Model(&model.Item{}).
+			Preload("Tier.Translations").
+			Preload("Translations").
+			Where("id IN ?", itemIDs)
 	}
+}
 
-	if err := model.DB.
-		Where("id = ? AND user_id = ?", resultID, userID).
-		Delete(&model.Result{}).
-		Error; err != nil {
-		c.Status(http.StatusInternalServerError)
-		return
+func tiersByIDs(tierIDs []uint) func(db *gorm.DB) *gorm.DB {
+	return func(db *gorm.DB) *gorm.DB {
+		return db.Model(&model.Tier{}).
+			Preload("Translations").
+			Where("id IN ?", tierIDs)
 	}
+}
 
-	c.Status(http.StatusNoContent)
+func makeUniqueItemIDs(result *model.Result) ([]uint, error) {
+	uniqueItemIDs := make([]uint, 0)
+	itemIDMap := make(map[uint]bool)
+	var itemIDs []uint
+	if err := json.Unmarshal(result.ItemIDs, &itemIDs); err != nil {
+		return nil, err
+	}
+	for _, itemID := range itemIDs {
+		itemIDMap[itemID] = true
+	}
+	for itemID := range itemIDMap {
+		uniqueItemIDs = append(uniqueItemIDs, itemID)
+	}
+	return uniqueItemIDs, nil
 }

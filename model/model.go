@@ -25,6 +25,7 @@ type GameTitle struct {
 	ID                    uint                   `json:"id"`
 	Slug                  string                 `json:"slug" gorm:"size:256;unique;index;notNull"`
 	ImageURL              string                 `json:"imageUrl"`
+	DisplayOrder          uint                   `json:"displayOrder"`
 	Translations          []GameTitleTranslation `json:"translations" gorm:"constraint:OnDelete:CASCADE;"`
 	GameTitleTranslatable `gorm:"-"`
 }
@@ -68,8 +69,8 @@ type Item struct {
 }
 
 type ItemTranslatable struct {
-	Name      string `json:"name"`
-	ShortName string `json:"shortName"`
+	Name      string `json:"name" gorm:"index"`
+	ShortName string `json:"shortName" gorm:"index"`
 }
 
 type ItemTranslation struct {
@@ -185,7 +186,7 @@ type Policies struct {
 	Pity                 bool                  `json:"pity"`
 	PityTrigger          int                   `json:"pityTrigger"`
 	PityItem             *Item                 `json:"pityItem,omitempty" gorm:"constraint:OnDelete:CASCADE;"`
-	PityItemID           uint                  `json:"pityItemId,omitempty"`
+	PityItemID           *uint                 `json:"pityItemId,omitempty"`
 	GameTitle            *GameTitle            `json:"gameTitle,omitempty" gorm:"constraint:OnDelete:CASCADE;"`
 	GameTitleID          uint                  `json:"gameTitleId,omitempty"`
 	Translations         []PoliciesTranslation `json:"translations" gorm:"constraint:OnDelete:CASCADE;"`
@@ -260,6 +261,47 @@ func (plan Plan) GetLanguageHolders() []LanguageHolder {
 	return languageHolders
 }
 
+type Preset struct {
+	ID                 uint                `json:"id"`
+	GameTitle          *GameTitle          `json:"gameTitle,omitempty" gorm:"constraint:OnDelete:CASCADE;"`
+	GameTitleID        uint                `json:"gameTitleId,omitempty"`
+	Pricing            *Pricing            `json:"pricing,omitempty" gorm:"constraint:OnDelete:CASCADE;"`
+	PricingID          *uint               `json:"pricingId,omitempty"`
+	Policies           *Policies           `json:"policies,omitempty" gorm:"constraint:OnDelete:CASCADE;"`
+	PoliciesID         *uint               `json:"policiesId,omitempty"`
+	Plan               *Plan               `json:"plan,omitempty" gorm:"constraint:OnDelete:CASCADE;"`
+	PlanID             *uint               `json:"planId,omitempty"`
+	Translations       []PresetTranslation `json:"translations" gorm:"constraint:OnDelete:CASCADE;"`
+	PresetTranslatable `gorm:"-"`
+}
+
+type PresetTranslatable struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+type PresetTranslation struct {
+	ID       uint    `json:"id"`
+	Language string  `json:"language"`
+	Preset   *Preset `json:"-"`
+	PresetID uint    `json:"-"`
+	PresetTranslatable
+}
+
+func (preset Preset) GetLanguageHolders() []LanguageHolder {
+	var languageHolders []LanguageHolder
+	for i := 0; i < len(preset.Translations); i++ {
+		languageHolders = append(languageHolders, LanguageHolder{
+			GetLanguage: func(i int) func() string {
+				return func() string {
+					return preset.Translations[i].Language
+				}
+			}(i),
+		})
+	}
+	return languageHolders
+}
+
 type Result struct {
 	ID            uint           `json:"id"`
 	UserID        string         `json:"userID" gorm:"index;notNull"`
@@ -268,8 +310,6 @@ type Result struct {
 	ItemIDs       datatypes.JSON `json:"itemIDs"`
 	GoalsAchieved bool           `json:"goalsAchieved"`
 	MoneySpent    float64        `json:"moneySpent"`
-	Items         datatypes.JSON `json:"-"`
-	ItemsResponse []Item         `json:"items,omitempty" gorm:"-"`
 	Time          time.Time      `json:"time"`
 	GameTitle     *GameTitle     `json:"gameTitle" gorm:"constraint:OnDelete:CASCADE;"`
 	GameTitleID   uint           `json:"-"`
@@ -317,6 +357,8 @@ func SetupDB(dsn string) {
 		&PoliciesTranslation{},
 		&Plan{},
 		&PlanTranslation{},
+		&Preset{},
+		&PresetTranslation{},
 		&Result{},
 	)
 	if err != nil {
