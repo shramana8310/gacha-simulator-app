@@ -8,7 +8,7 @@ import (
 	"gorm.io/gorm"
 )
 
-type GameTitleWrapper struct {
+type GameTitleBulk struct {
 	GameTitle model.GameTitle  `json:"gameTitle"`
 	Tiers     []model.Tier     `json:"tiers"`
 	Items     []model.Item     `json:"items"`
@@ -18,8 +18,8 @@ type GameTitleWrapper struct {
 	Presets   []model.Preset   `json:"presets"`
 }
 
-type GameTitles struct {
-	GameTitleWrappers []GameTitleWrapper `json:"gameTitles"`
+type GameTitleBulkRequest struct {
+	GameTitleBulks []GameTitleBulk `json:"gameTitleBulks"`
 }
 
 type Result struct {
@@ -30,33 +30,33 @@ type Result struct {
 
 func PostGameTitlesBulk(ctx *gin.Context) {
 	result := Result{}
-	var gameTitles GameTitles
-	err := ctx.Bind(&gameTitles)
+	var gameTitleBulkRequest GameTitleBulkRequest
+	err := ctx.Bind(&gameTitleBulkRequest)
 	if err != nil {
 		ctx.Status(http.StatusBadRequest)
 		return
 	}
-	for _, gameTitleWrapper := range gameTitles.GameTitleWrappers {
+	for _, gameTitleBulk := range gameTitleBulkRequest.GameTitleBulks {
 		err := model.DB.Transaction(func(tx *gorm.DB) error {
-			if err := tx.Create(&gameTitleWrapper.GameTitle).Error; err != nil {
+			if err := tx.Create(&gameTitleBulk.GameTitle).Error; err != nil {
 				return err
 			}
-			if err := tx.Create(&gameTitleWrapper.Tiers).Error; err != nil {
+			if err := tx.Create(&gameTitleBulk.Tiers).Error; err != nil {
 				return err
 			}
-			if err := tx.Create(&gameTitleWrapper.Items).Error; err != nil {
+			if err := tx.Create(&gameTitleBulk.Items).Error; err != nil {
 				return err
 			}
-			if err := tx.Create(&gameTitleWrapper.Pricings).Error; err != nil {
+			if err := tx.Create(&gameTitleBulk.Pricings).Error; err != nil {
 				return err
 			}
-			if err := tx.Create(&gameTitleWrapper.Policies).Error; err != nil {
+			if err := tx.Create(&gameTitleBulk.Policies).Error; err != nil {
 				return err
 			}
-			if err := tx.Create(&gameTitleWrapper.Plans).Error; err != nil {
+			if err := tx.Create(&gameTitleBulk.Plans).Error; err != nil {
 				return err
 			}
-			if err := tx.Create(&gameTitleWrapper.Presets).Error; err != nil {
+			if err := tx.Create(&gameTitleBulk.Presets).Error; err != nil {
 				return err
 			}
 			return nil
