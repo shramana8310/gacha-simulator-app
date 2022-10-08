@@ -3,7 +3,12 @@ package gacha
 import (
 	"errors"
 	"math/rand"
+	"os"
+	"strconv"
+	"sync"
 	"time"
+
+	lru "github.com/hashicorp/golang-lru"
 )
 
 type RandomNumberGenerator interface {
@@ -306,24 +311,56 @@ func countItems(request *Request) error {
 	return nil
 }
 
+var tierCache *lru.Cache
+var itemCacheSize int
+var cacheInitialized bool = false
+var cacheInitMutex sync.Mutex
+
 func getItemFromIndexCachedClosure(getItemFromIndex func(uint, int) (Item, error)) func(uint, int) (Item, error) {
-	tierCache := make(map[uint]map[int]Item)
+	cacheInitMutex.Lock()
+	if !cacheInitialized {
+		initCache()
+	}
+	cacheInitMutex.Unlock()
 	return func(tierID uint, index int) (Item, error) {
-		if itemCache, ok := tierCache[tierID]; ok {
-			if item, ok := itemCache[index]; ok {
-				return item, nil
+		if itemCache, ok := tierCache.Get(tierID); ok {
+			if item, ok := itemCache.(*lru.Cache).Get(index); ok {
+				return item.(Item), nil
 			}
 		}
 		item, err := getItemFromIndex(tierID, index)
 		if err != nil {
 			return Item{}, err
 		}
-		if _, ok := tierCache[tierID]; !ok {
-			tierCache[tierID] = make(map[int]Item)
+		if _, ok := tierCache.Get(tierID); !ok {
+			itemCache, err := lru.New(itemCacheSize)
+			if err != nil {
+				return Item{}, err
+			}
+			tierCache.Add(tierID, itemCache)
 		}
-		tierCache[tierID][index] = item
+		itemCache, _ := tierCache.Get(tierID)
+		itemCache.(*lru.Cache).Add(index, item)
 		return item, nil
 	}
+}
+
+func initCache() {
+	tierCacheSizeStr := os.Getenv("TIER_CACHE_SIZE")
+	tierCacheSize, err := strconv.Atoi(tierCacheSizeStr)
+	if err != nil {
+		panic(err)
+	}
+	tierCache, err = lru.New(tierCacheSize)
+	if err != nil {
+		panic(err)
+	}
+	itemCacheSizeStr := os.Getenv("ITEM_CACHE_SIZE")
+	itemCacheSize, err = strconv.Atoi(itemCacheSizeStr)
+	if err != nil {
+		panic(err)
+	}
+	cacheInitialized = true
 }
 
 func Validate(request Request) error {

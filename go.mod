@@ -7,6 +7,7 @@ require (
 	github.com/go-oauth2/oauth2 v3.9.2+incompatible
 	github.com/go-oauth2/oauth2/v4 v4.5.1
 	github.com/google/uuid v1.3.0
+	github.com/hashicorp/golang-lru v0.5.4
 	github.com/joho/godotenv v1.4.0
 	golang.org/x/text v0.3.7
 	gorm.io/datatypes v1.0.6

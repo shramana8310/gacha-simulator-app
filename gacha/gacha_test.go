@@ -1,6 +1,7 @@
 package gacha
 
 import (
+	"os"
 	"testing"
 )
 
@@ -15,6 +16,8 @@ func (mock *RandomNumberGeneratorMock) Intn(int) int {
 }
 
 func TestExecute(t *testing.T) {
+	os.Setenv("TIER_CACHE_SIZE", "10")
+	os.Setenv("ITEM_CACHE_SIZE", "1000")
 	rng = &RandomNumberGeneratorMock{returnValues: []int{0, 0, 8, 2, 9, 0}}
 	pityItem := Item{
 		ID:    3,

@@ -20,6 +20,8 @@ import (
 )
 
 func main() {
+	loadEnv()
+
 	dsn := getDSN()
 
 	model.SetupDB(dsn)
@@ -144,7 +146,7 @@ func getDSN() string {
 	return os.Getenv("DATABASE_URL")
 }
 
-func init() {
+func loadEnv() {
 	env := os.Getenv("GACHA_ENV")
 	if "" == env {
 		env = "development"
