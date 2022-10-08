@@ -30,14 +30,29 @@ func main() {
 
 	clientStore := oauth2gorm.NewClientStore(oauth2gorm.NewConfig(dsn, oauth2gorm.PostgreSQL, "oauth2_clients"))
 	ctx := context.Background()
-	clientStore.Create(ctx, &models.Client{
-		ID:     os.Getenv("OAUTH_PUBLIC_CLIENT_ID"),
-		Domain: os.Getenv("OAUTH_PUBLIC_CLIENT_DOMAIN"),
-	})
-	clientStore.Create(ctx, &models.Client{
-		ID:     os.Getenv("OAUTH_PRIVATE_CLIENT_ID"),
-		Secret: os.Getenv("OAUTH_PRIVATE_CLIENT_SECRET"),
-	})
+
+	oauthPublicClientID := os.Getenv("OAUTH_PUBLIC_CLIENT_ID")
+	oauthPublicClientInfo, _ := clientStore.GetByID(ctx, oauthPublicClientID)
+	if oauthPublicClientInfo == nil || oauthPublicClientInfo.GetID() == "" {
+		if err := clientStore.Create(ctx, &models.Client{
+			ID:     oauthPublicClientID,
+			Domain: os.Getenv("OAUTH_PUBLIC_CLIENT_DOMAIN"),
+		}); err != nil {
+			panic(err)
+		}
+	}
+
+	oauthPrivateClientID := os.Getenv("OAUTH_PRIVATE_CLIENT_ID")
+	oauthPrivateClientInfo, _ := clientStore.GetByID(ctx, oauthPrivateClientID)
+	if oauthPrivateClientInfo == nil || oauthPrivateClientInfo.GetID() == "" {
+		if err := clientStore.Create(ctx, &models.Client{
+			ID:     oauthPrivateClientID,
+			Secret: os.Getenv("OAUTH_PRIVATE_CLIENT_SECRET"),
+		}); err != nil {
+			panic(err)
+		}
+	}
+
 	manager.MapClientStorage(clientStore)
 
 	tokenStore := oauth2gorm.NewTokenStore(oauth2gorm.NewConfig(dsn, oauth2gorm.PostgreSQL, "oauth2_token"), 600)
