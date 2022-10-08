@@ -107,7 +107,7 @@ func main() {
 		validateBearerToken := func(ctx *gin.Context) {
 			ti, err := srv.ValidationBearerToken(ctx.Request)
 			if err != nil {
-				ctx.AbortWithError(500, err)
+				ctx.AbortWithError(http.StatusUnauthorized, err)
 				return
 			}
 			ctx.Set("access_token", ti)
@@ -139,13 +139,13 @@ func main() {
 			adminGroup.Use(func(ctx *gin.Context) {
 				ti, err := srv.ValidationBearerToken(ctx.Request)
 				if err != nil {
-					ctx.AbortWithError(500, err)
+					ctx.AbortWithError(http.StatusUnauthorized, err)
 					return
 				}
 				clientID := ti.GetClientID()
 				privateClientID := os.Getenv("OAUTH_PRIVATE_CLIENT_ID")
 				if clientID != privateClientID {
-					ctx.AbortWithStatus(403)
+					ctx.AbortWithStatus(http.StatusForbidden)
 					return
 				}
 				ctx.Next()
