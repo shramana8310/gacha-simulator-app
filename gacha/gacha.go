@@ -262,7 +262,7 @@ func prepareRequest(request *Request) error {
 				return err
 			}
 			if pityItem.Tier == nil {
-				return errors.New("Pity item's tier not found")
+				return errors.New("pity item's tier not found")
 			}
 			request.Policies.PityItem = &pityItem
 		}
@@ -304,7 +304,7 @@ func countItems(request *Request) error {
 			return err
 		}
 		if count == 0 {
-			return errors.New("Zero item count")
+			return errors.New("zero item count")
 		}
 		request.Tiers[i].ItemCount = count
 	}
@@ -381,7 +381,7 @@ func Validate(request Request) error {
 
 func validateTiersAndItems(request Request) error {
 	if len(request.Tiers) == 0 {
-		return errors.New("Tiers empty")
+		return errors.New("tiers empty")
 	}
 	tierRatioSum := 0
 	itemRatioSum := 0
@@ -390,17 +390,17 @@ func validateTiersAndItems(request Request) error {
 	for _, tier := range request.Tiers {
 		tierIDs = append(tierIDs, tier.ID)
 		if tier.Ratio < 0 {
-			return errors.New("Negative tier ratio")
+			return errors.New("negative tier ratio")
 		}
 		tierRatioSum += tier.Ratio
 		if request.ItemsIncluded {
 			if len(tier.Items) == 0 {
-				return errors.New("Items empty")
+				return errors.New("items empty")
 			}
 			for _, item := range tier.Items {
 				itemIDs = append(itemIDs, item.ID)
 				if item.Ratio < 0 {
-					return errors.New("Negative item ratio")
+					return errors.New("negative item ratio")
 				}
 				itemRatioSum += item.Ratio
 			}
@@ -411,7 +411,7 @@ func validateTiersAndItems(request Request) error {
 		return err
 	}
 	if len(tierIDs) != int(tierCount) {
-		return errors.New("Some tier not found")
+		return errors.New("some tier not found")
 	}
 	if request.ItemsIncluded {
 		itemCount, err := request.GetItemCountFromIDs(itemIDs)
@@ -419,15 +419,15 @@ func validateTiersAndItems(request Request) error {
 			return err
 		}
 		if len(itemIDs) != int(itemCount) {
-			return errors.New("Some item not found")
+			return errors.New("some item not found")
 		}
 	}
 	if tierRatioSum == 0 {
-		return errors.New("Tier ratio zero")
+		return errors.New("tier ratio zero")
 	}
 	if request.ItemsIncluded {
 		if itemRatioSum == 0 {
-			return errors.New("Item ratio zero")
+			return errors.New("item ratio zero")
 		}
 	}
 	return nil
@@ -435,17 +435,17 @@ func validateTiersAndItems(request Request) error {
 
 func validatePricing(request Request) error {
 	if request.Pricing.PricePerGacha < 0 {
-		return errors.New("Negative price per gacha")
+		return errors.New("negative price per gacha")
 	}
 	if request.Pricing.Discount {
 		if request.Pricing.DiscountTrigger <= 0 {
-			return errors.New("Non-positive discount trigger")
+			return errors.New("non-positive discount trigger")
 		}
 		if request.Pricing.DiscountedPricePerGacha < 0 {
-			return errors.New("Negative discounted price per gacha")
+			return errors.New("negative discounted price per gacha")
 		}
 		if request.Pricing.DiscountedPricePerGacha > request.Pricing.PricePerGacha {
-			return errors.New("Discounted price per gacha greater than price per gacha")
+			return errors.New("discounted price per gacha greater than price per gacha")
 		}
 	}
 	return nil
@@ -454,13 +454,13 @@ func validatePricing(request Request) error {
 func validatePolicies(request Request) error {
 	if request.Policies.Pity {
 		if request.Policies.PityTrigger < 0 {
-			return errors.New("Negative pity trigger")
+			return errors.New("negative pity trigger")
 		}
 		if request.Policies.PityItem == nil {
-			return errors.New("Pity item empty")
+			return errors.New("pity item empty")
 		}
 		if _, err := request.GetItemFromID(request.Policies.PityItem.ID); err != nil {
-			return errors.New("Pity item not found")
+			return errors.New("pity item not found")
 		}
 	}
 	return nil
@@ -468,23 +468,23 @@ func validatePolicies(request Request) error {
 
 func validatePlan(request Request) error {
 	if request.Plan.Budget < 0 {
-		return errors.New("Negative budget")
+		return errors.New("negative budget")
 	}
 	if request.Plan.MaxConsecutiveGachas < 0 {
-		return errors.New("Negative max consecutive gachas")
+		return errors.New("negative max consecutive gachas")
 	}
 	if request.Plan.MaxConsecutiveGachas > 1000 {
-		return errors.New("Exceeded max consecutive gacha limit")
+		return errors.New("exceeded max consecutive gacha limit")
 	}
 	if request.Plan.ItemGoals {
 		if len(request.Plan.WantedItems) == 0 {
-			return errors.New("Wanted items empty")
+			return errors.New("wanted items empty")
 		}
 		itemIDs := make([]uint, 0)
 		for itemID, itemNumber := range request.Plan.WantedItems {
 			itemIDs = append(itemIDs, itemID)
 			if itemNumber < 0 {
-				return errors.New("Negative wanted item number")
+				return errors.New("negative wanted item number")
 			}
 		}
 		itemCount, err := request.GetItemCountFromIDs(itemIDs)
@@ -492,18 +492,18 @@ func validatePlan(request Request) error {
 			return err
 		}
 		if len(itemIDs) != int(itemCount) {
-			return errors.New("Some wanted item not found")
+			return errors.New("some wanted item not found")
 		}
 	}
 	if request.Plan.TierGoals {
 		if len(request.Plan.WantedTiers) == 0 {
-			return errors.New("Wanted tiers empty")
+			return errors.New("wanted tiers empty")
 		}
 		tierIDs := make([]uint, 0)
 		for tierID, tierNumber := range request.Plan.WantedTiers {
 			tierIDs = append(tierIDs, tierID)
 			if tierNumber < 0 {
-				return errors.New("Negative wanted tier number")
+				return errors.New("negative wanted tier number")
 			}
 		}
 		tierCount, err := request.GetTierCountFromIDs(tierIDs)
@@ -511,7 +511,7 @@ func validatePlan(request Request) error {
 			return err
 		}
 		if len(tierIDs) != int(tierCount) {
-			return errors.New("Some tier not found")
+			return errors.New("some tier not found")
 		}
 	}
 	return nil

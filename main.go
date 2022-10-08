@@ -142,7 +142,7 @@ func main() {
 					ctx.AbortWithError(500, err)
 					return
 				}
-				clientID := ti.(oauth2.TokenInfo).GetClientID()
+				clientID := ti.GetClientID()
 				privateClientID := os.Getenv("OAUTH_PRIVATE_CLIENT_ID")
 				if clientID != privateClientID {
 					ctx.AbortWithStatus(403)
@@ -163,12 +163,12 @@ func getDSN() string {
 
 func loadEnv() {
 	env := os.Getenv("GACHA_ENV")
-	if "" == env {
+	if env == "" {
 		env = "development"
 	}
 
 	godotenv.Load(".env." + env + ".local")
-	if "test" != env {
+	if env != "test" {
 		godotenv.Load(".env.local")
 	}
 	godotenv.Load(".env." + env)
