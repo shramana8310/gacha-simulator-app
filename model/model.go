@@ -315,15 +315,6 @@ type Result struct {
 	GameTitleID   uint           `json:"-"`
 }
 
-type GachaRequest struct {
-	GameTitle     GameTitle `json:"gameTitle"`
-	Tiers         []Tier    `json:"tiers"`
-	ItemsIncluded bool      `json:"itemsIncluded"`
-	Pricing       Pricing   `json:"pricing"`
-	Policies      Policies  `json:"policies"`
-	Plan          Plan      `json:"plan"`
-}
-
 func SetupDB(dsn string) {
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
 		Logger: logger.New(

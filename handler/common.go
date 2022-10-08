@@ -1,9 +1,12 @@
 package handler
 
 import (
+	"gacha-simulator/gacha"
 	"gacha-simulator/model"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-oauth2/oauth2/v4"
 	"golang.org/x/text/language"
 )
 
@@ -23,6 +26,7 @@ type Tier struct {
 	ImageURL  string `json:"imageUrl"`
 	Name      string `json:"name"`
 	ShortName string `json:"shortName"`
+	Items     []Item `json:"items,omitempty"`
 }
 
 type TierWithNumber struct {
@@ -81,6 +85,18 @@ type Preset struct {
 	Description string    `json:"description"`
 }
 
+type Result struct {
+	ID            uint          `json:"id"`
+	UserID        string        `json:"userID"`
+	Public        bool          `json:"public"`
+	Request       gacha.Request `json:"request,omitempty"`
+	ItemIDs       []uint        `json:"itemIDs"`
+	GoalsAchieved bool          `json:"goalsAchieved"`
+	MoneySpent    float64       `json:"moneySpent"`
+	Time          time.Time     `json:"time"`
+	GameTitle     *GameTitle    `json:"gameTitle,omitempty"`
+}
+
 func getTranslationIndex(preferred []language.Tag, translationHolder model.TranslationHolder) int {
 	var tags []language.Tag
 	languageHolders := translationHolder.GetLanguageHolders()
@@ -99,4 +115,13 @@ func getPreferredLanguage(c *gin.Context) []language.Tag {
 		return []language.Tag{language.English}
 	}
 	return preferred
+}
+
+func getUserID(c *gin.Context) (string, bool) {
+	accessToken, ok := c.Get("access_token")
+	if !ok {
+		return "", false
+	}
+	userID := accessToken.(oauth2.TokenInfo).GetUserID()
+	return userID, true
 }

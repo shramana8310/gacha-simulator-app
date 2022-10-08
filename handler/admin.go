@@ -22,14 +22,14 @@ type GameTitleBulkRequest struct {
 	GameTitleBulks []GameTitleBulk `json:"gameTitleBulks"`
 }
 
-type Result struct {
+type GameTitleBulkResponse struct {
 	Total   int `json:"total"`
 	Success int `json:"success"`
 	Failure int `json:"failure"`
 }
 
 func PostGameTitlesBulk(ctx *gin.Context) {
-	result := Result{}
+	response := GameTitleBulkResponse{}
 	var gameTitleBulkRequest GameTitleBulkRequest
 	err := ctx.Bind(&gameTitleBulkRequest)
 	if err != nil {
@@ -61,14 +61,14 @@ func PostGameTitlesBulk(ctx *gin.Context) {
 			}
 			return nil
 		})
-		result.Total++
+		response.Total++
 		if err == nil {
-			result.Success++
+			response.Success++
 		} else {
-			result.Failure++
+			response.Failure++
 		}
 	}
-	ctx.JSON(http.StatusOK, result)
+	ctx.JSON(http.StatusOK, response)
 }
 
 func DeleteGameTitle(ctx *gin.Context) {

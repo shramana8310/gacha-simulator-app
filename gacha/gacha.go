@@ -65,16 +65,16 @@ type Plan struct {
 }
 
 type Request struct {
-	Tiers               []Tier                                     `json:"tiers"`
-	ItemsIncluded       bool                                       `json:"itemsIncluded"`
-	Pricing             Pricing                                    `json:"pricing"`
-	Policies            Policies                                   `json:"policies"`
-	Plan                Plan                                       `json:"plan"`
-	GetItemCount        func(tierID uint) (int64, error)           `json:"-"`
-	GetItemFromIndex    func(tierID uint, index int) (Item, error) `json:"-"`
-	GetItemFromID       func(itemID uint) (Item, error)            `json:"-"`
-	GetItemCountFromIDs func(itemIDs []uint) (int64, error)        `json:"-"`
-	GetTierCountFromIDs func(tierIDs []uint) (int64, error)        `json:"-"`
+	Tiers               []Tier                                      `json:"tiers"`
+	ItemsIncluded       bool                                        `json:"itemsIncluded"`
+	Pricing             Pricing                                     `json:"pricing"`
+	Policies            Policies                                    `json:"policies"`
+	Plan                Plan                                        `json:"plan"`
+	GetItemCount        func(tierID uint) (int64, error)            `json:"-"`
+	GetItemFromIndex    func(tierID uint, index int) (*Item, error) `json:"-"`
+	GetItemFromID       func(itemID uint) (*Item, error)            `json:"-"`
+	GetItemCountFromIDs func(itemIDs []uint) (int64, error)         `json:"-"`
+	GetTierCountFromIDs func(tierIDs []uint) (int64, error)         `json:"-"`
 }
 
 type Result struct {
@@ -109,7 +109,7 @@ func Execute(request Request) (Result, error) {
 			); err != nil {
 				return result, err
 			} else {
-				selectedItem = item
+				selectedItem = *item
 			}
 		}
 		result.Items = append(result.Items, selectedItem)
@@ -126,8 +126,8 @@ func Execute(request Request) (Result, error) {
 func selectRandomItemFromRandomTier(
 	tiers []Tier,
 	itemsIncluded bool,
-	getItemFromIndex func(tierID uint, index int) (Item, error),
-) (Item, error) {
+	getItemFromIndex func(tierID uint, index int) (*Item, error),
+) (*Item, error) {
 	ratioers := make([]Ratioer, len(tiers))
 	for i := range tiers {
 		ratioers[i] = tiers[i]
@@ -142,13 +142,14 @@ func selectRandomItemFromRandomTier(
 	}
 }
 
-func selectRandomItem(items []Item) Item {
+func selectRandomItem(items []Item) *Item {
 	ratioers := make([]Ratioer, len(items))
 	for i := range items {
 		ratioers[i] = items[i]
 	}
 	selectedRatioer := selectRandomRatioer(ratioers)
-	return selectedRatioer.(Item)
+	item := selectedRatioer.(Item)
+	return &item
 }
 
 func selectRandomRatioer(ratioers []Ratioer) Ratioer {
@@ -264,7 +265,7 @@ func prepareRequest(request *Request) error {
 			if pityItem.Tier == nil {
 				return errors.New("pity item's tier not found")
 			}
-			request.Policies.PityItem = &pityItem
+			request.Policies.PityItem = pityItem
 		}
 	}
 	return nil
@@ -316,26 +317,26 @@ var itemCacheSize int
 var cacheInitialized bool = false
 var cacheInitMutex sync.Mutex
 
-func getItemFromIndexCachedClosure(getItemFromIndex func(uint, int) (Item, error)) func(uint, int) (Item, error) {
+func getItemFromIndexCachedClosure(getItemFromIndex func(uint, int) (*Item, error)) func(uint, int) (*Item, error) {
 	cacheInitMutex.Lock()
 	if !cacheInitialized {
 		initCache()
 	}
 	cacheInitMutex.Unlock()
-	return func(tierID uint, index int) (Item, error) {
+	return func(tierID uint, index int) (*Item, error) {
 		if itemCache, ok := tierCache.Get(tierID); ok {
 			if item, ok := itemCache.(*lru.Cache).Get(index); ok {
-				return item.(Item), nil
+				return item.(*Item), nil
 			}
 		}
 		item, err := getItemFromIndex(tierID, index)
 		if err != nil {
-			return Item{}, err
+			return nil, err
 		}
 		if _, ok := tierCache.Get(tierID); !ok {
 			itemCache, err := lru.New(itemCacheSize)
 			if err != nil {
-				return Item{}, err
+				return nil, err
 			}
 			tierCache.Add(tierID, itemCache)
 		}

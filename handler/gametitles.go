@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"gacha-simulator/gacha"
 	"gacha-simulator/model"
 	"math"
 	"net/http"
@@ -12,10 +13,27 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/go-oauth2/oauth2/v4"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
+
+type PresetsResponse struct {
+	Tiers   []Tier   `json:"tiers"`
+	Presets []Preset `json:"presets"`
+}
+
+type Pagination struct {
+	Index        int         `json:"index"`
+	Count        int         `json:"count"`
+	CountPerPage int         `json:"countPerPage"`
+	Total        int64       `json:"total"`
+	PageIndex    int         `json:"pageIndex"`
+	PageTotal    int         `json:"pageTotal"`
+	Data         interface{} `json:"data"`
+}
+
+const ItemSearchLimit = 50
+const CountPerPage = 10
 
 func GetGameTitles(c *gin.Context) {
 	gameTitlesModel, err := getGameTitlesModel()
@@ -51,24 +69,6 @@ func GetTiers(c *gin.Context) {
 	}
 	tiers := mapTiers(tiersModel, c)
 	c.JSON(http.StatusOK, &tiers)
-}
-
-const ItemSearchLimit = 50
-
-type ByTierAndShortName []Item
-
-func (a ByTierAndShortName) Len() int {
-	return len(a)
-}
-func (a ByTierAndShortName) Less(i, j int) bool {
-	if a[i].Tier.ID == a[j].Tier.ID {
-		return a[i].ShortName < a[j].ShortName
-	} else {
-		return a[i].Tier.Ratio < a[j].Tier.Ratio
-	}
-}
-func (a ByTierAndShortName) Swap(i, j int) {
-	a[i], a[j] = a[j], a[i]
 }
 
 func GetItems(c *gin.Context) {
@@ -121,11 +121,6 @@ func GetPlans(c *gin.Context) {
 	c.JSON(http.StatusOK, &plans)
 }
 
-type PresetsResponse struct {
-	Tiers   []Tier   `json:"tiers"`
-	Presets []Preset `json:"presets"`
-}
-
 func GetPresets(c *gin.Context) {
 	gameTitleSlug := c.Param("gameTitleSlug")
 	tiersModel, err := getTiersModel(gameTitleSlug)
@@ -150,75 +145,32 @@ func GetPresets(c *gin.Context) {
 	})
 }
 
-type Pagination struct {
-	Index        int         `json:"index"`
-	Count        int         `json:"count"`
-	CountPerPage int         `json:"countPerPage"`
-	Total        int64       `json:"total"`
-	PageIndex    int         `json:"pageIndex"`
-	PageTotal    int         `json:"pageTotal"`
-	Data         interface{} `json:"data"`
-}
-
-func GameTitleGachasByUser(results *[]model.Result, gameTitleSlug, userID string) func(db *gorm.DB) *gorm.DB {
-	return func(db *gorm.DB) *gorm.DB {
-		return db.Model(results).
-			Joins("JOIN game_titles on game_titles.id=results.game_title_id").
-			Where("game_titles.slug = ? AND results.user_id = ?", gameTitleSlug, userID).
-			Preload("GameTitle.Translations")
-	}
-}
-
 func GetGachas(c *gin.Context) {
 	gameTitleSlug := c.Param("gameTitleSlug")
-	accessToken, _ := c.Get("access_token")
-	userID := accessToken.(oauth2.TokenInfo).GetUserID()
-	pageIndexStr := c.Query("pageIndex")
-	if len(pageIndexStr) == 0 {
-		pageIndexStr = "0"
-	}
-	pageIndex, err := strconv.Atoi(pageIndexStr)
-	if err != nil {
+	userID, ok := getUserID(c)
+	pageIndex, err := getPageIndex(c)
+	if !ok || err != nil {
 		c.Status(http.StatusBadRequest)
 		return
 	}
-	count := 10
-	offset := pageIndex * count
-	var total int64
-
-	var results []model.Result
-	if err := model.DB.
-		Scopes(GameTitleGachasByUser(&results, gameTitleSlug, userID)).
-		Count(&total).
-		Error; err != nil {
+	count := CountPerPage
+	total, err := getTotalResultCount(gameTitleSlug, userID)
+	if err != nil {
 		c.Status(http.StatusInternalServerError)
 		return
 	}
-	if err := model.DB.
-		Scopes(GameTitleGachasByUser(&results, gameTitleSlug, userID)).
-		Order("results.time desc").
-		Offset(offset).
-		Limit(count).
-		Omit("Items", "Request").
-		Find(&results).
-		Error; err != nil {
+	resultsModel, err := getResultsModel(gameTitleSlug, userID, pageIndex, count)
+	if err != nil {
 		c.Status(http.StatusInternalServerError)
 		return
 	}
-	preferred := getPreferredLanguage(c)
-	for i := 0; i < len(results); i++ {
-		j := getTranslationIndex(preferred, results[i].GameTitle)
-		results[i].GameTitle.GameTitleTranslatable = results[i].GameTitle.Translations[j].GameTitleTranslatable
+	results, err := mapResults(resultsModel, c)
+	if err != nil {
+		c.Status(http.StatusInternalServerError)
+		return
 	}
-	c.JSON(http.StatusOK, Pagination{
-		Index:        pageIndex * count,
-		Count:        len(results),
-		CountPerPage: count,
-		Total:        total,
-		PageIndex:    pageIndex,
-		PageTotal:    int(math.Ceil(float64(total) / float64(count))),
-		Data:         results,
-	})
+	pagination := mapPagination(total, pageIndex, count, results)
+	c.JSON(http.StatusOK, &pagination)
 }
 
 func getGameTitlesModel() ([]model.GameTitle, error) {
@@ -370,6 +322,41 @@ func getPresetsModel(gameTitleSlug string) ([]model.Preset, error) {
 		return nil, err
 	}
 	return presetsModel, nil
+}
+
+func getTotalResultCount(gameTitleSlug, userID string) (int64, error) {
+	var total int64
+	var resultsModel []model.Result
+	if err := model.DB.
+		Scopes(gameTitleGachasByUser(&resultsModel, gameTitleSlug, userID)).
+		Count(&total).
+		Error; err != nil {
+		return -1, err
+	}
+	return total, nil
+}
+
+func getResultsModel(gameTitleSlug, userID string, pageIndex, count int) ([]model.Result, error) {
+	offset := pageIndex * count
+	var resultsModel []model.Result
+	if err := model.DB.
+		Scopes(gameTitleGachasByUser(&resultsModel, gameTitleSlug, userID)).
+		Order("results.time desc").
+		Offset(offset).
+		Limit(count).
+		Find(&resultsModel).
+		Error; err != nil {
+		return nil, err
+	}
+	return resultsModel, nil
+}
+
+func gameTitleGachasByUser(resultsModel *[]model.Result, gameTitleSlug, userID string) func(db *gorm.DB) *gorm.DB {
+	return func(db *gorm.DB) *gorm.DB {
+		return db.Model(resultsModel).
+			Joins("JOIN game_titles on game_titles.id=results.game_title_id").
+			Where("game_titles.slug = ? AND results.user_id = ?", gameTitleSlug, userID)
+	}
 }
 
 func mapGameTitle(gameTitleModel model.GameTitle, c *gin.Context) *GameTitle {
@@ -606,10 +593,88 @@ func mapPresets(presetsModel []model.Preset, c *gin.Context) ([]Preset, error) {
 	return presets, nil
 }
 
+func mapResult(resultModel model.Result, c *gin.Context) (*Result, error) {
+	var gameTitle *GameTitle
+	if resultModel.GameTitle != nil {
+		gameTitle = mapGameTitle(*resultModel.GameTitle, c)
+	}
+	var itemIDs []uint
+	if err := json.Unmarshal([]byte(resultModel.ItemIDs.String()), &itemIDs); err != nil {
+		return nil, err
+	}
+	var request gacha.Request
+	if err := json.Unmarshal([]byte(resultModel.Request.String()), &request); err != nil {
+		return nil, err
+	}
+	return &Result{
+		ID:            resultModel.ID,
+		UserID:        resultModel.UserID,
+		Public:        resultModel.Public,
+		Request:       request,
+		ItemIDs:       itemIDs,
+		GoalsAchieved: resultModel.GoalsAchieved,
+		MoneySpent:    resultModel.MoneySpent,
+		Time:          resultModel.Time,
+		GameTitle:     gameTitle,
+	}, nil
+}
+
+func mapResults(resultsModel []model.Result, c *gin.Context) ([]Result, error) {
+	results := make([]Result, 0)
+	for i := 0; i < len(resultsModel); i++ {
+		result, err := mapResult(resultsModel[i], c)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, *result)
+	}
+	return results, nil
+}
+
+func mapPagination(total int64, pageIndex, count int, results []Result) *Pagination {
+	return &Pagination{
+		Index:        pageIndex * count,
+		Count:        len(results),
+		CountPerPage: count,
+		Total:        total,
+		PageIndex:    pageIndex,
+		PageTotal:    int(math.Ceil(float64(total) / float64(count))),
+		Data:         results,
+	}
+}
+
 func toMap(jsonData datatypes.JSON) (map[uint]uint, error) {
 	var wantedThingsMap map[uint]uint
 	if err := json.Unmarshal([]byte(jsonData.String()), &wantedThingsMap); err != nil {
 		return nil, err
 	}
 	return wantedThingsMap, nil
+}
+
+func getPageIndex(c *gin.Context) (int, error) {
+	pageIndexStr := c.Query("pageIndex")
+	if len(pageIndexStr) == 0 {
+		return 0, nil
+	}
+	pageIndex, err := strconv.Atoi(pageIndexStr)
+	if err != nil {
+		return -1, err
+	}
+	return pageIndex, nil
+}
+
+type ByTierAndShortName []Item
+
+func (a ByTierAndShortName) Len() int {
+	return len(a)
+}
+func (a ByTierAndShortName) Less(i, j int) bool {
+	if a[i].Tier.ID == a[j].Tier.ID {
+		return a[i].ShortName < a[j].ShortName
+	} else {
+		return a[i].Tier.Ratio < a[j].Tier.Ratio
+	}
+}
+func (a ByTierAndShortName) Swap(i, j int) {
+	a[i], a[j] = a[j], a[i]
 }

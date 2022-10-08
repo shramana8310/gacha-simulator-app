@@ -9,16 +9,32 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/go-oauth2/oauth2/v4"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
+type GachaRequest struct {
+	GameTitle     GameTitle `json:"gameTitle"`
+	Tiers         []Tier    `json:"tiers"`
+	ItemsIncluded bool      `json:"itemsIncluded"`
+	Pricing       Pricing   `json:"pricing"`
+	Policies      Policies  `json:"policies"`
+	Plan          Plan      `json:"plan"`
+}
+
 type ResultResponse struct {
-	*model.Result
-	Items                []model.Item `json:"items"`
-	RemainingWantedItems []model.Item `json:"remainingWantedItems"`
-	RemainingWantedTiers []model.Tier `json:"remainingWantedTiers"`
+	Result
+	Items                []Item `json:"items"`
+	RemainingWantedItems []Item `json:"remainingWantedItems"`
+	RemainingWantedTiers []Tier `json:"remainingWantedTiers"`
+}
+
+type ResultResponseExt struct {
+	ResultResponse
+	NextAvailable bool `json:"nextAvailable"`
+	NextID        uint `json:"nextId"`
+	PrevAvailable bool `json:"prevAvailable"`
+	PrevID        uint `json:"prevId"`
 }
 
 type PatchGachaRequest struct {
@@ -26,9 +42,9 @@ type PatchGachaRequest struct {
 }
 
 func PostGachas(c *gin.Context) {
-	var gachaRequest model.GachaRequest
+	var gachaRequest GachaRequest
 	c.Bind(&gachaRequest)
-	request := mapRequest(gachaRequest)
+	request := mapGachaRequest(gachaRequest)
 
 	err := gacha.Validate(request)
 	if err != nil {
@@ -42,7 +58,7 @@ func PostGachas(c *gin.Context) {
 		return
 	}
 
-	resultModel, err := mapResult(result, request, gachaRequest, c)
+	resultModel, err := mapResultModel(result, request, gachaRequest, c)
 	if err != nil {
 		c.Status(http.StatusInternalServerError)
 		return
@@ -62,79 +78,53 @@ func PostGachas(c *gin.Context) {
 	c.JSON(http.StatusOK, resultResponse)
 }
 
-type ResultResponseExt struct {
-	ResultResponse
-	NextAvailable bool `json:"nextAvailable"`
-	NextID        uint `json:"nextId"`
-	PrevAvailable bool `json:"prevAvailable"`
-	PrevID        uint `json:"prevId"`
-}
-
 func GetGacha(c *gin.Context) {
 	resultID := c.Param("resultID")
-	var result model.Result
-	if err := model.DB.
-		Preload("GameTitle.Translations").
-		First(&result, resultID).
-		Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.Status(http.StatusNotFound)
-			return
-		}
-		c.Status(http.StatusInternalServerError)
-		return
-	}
-	accessToken, _ := c.Get("access_token")
-	userID := accessToken.(oauth2.TokenInfo).GetUserID()
-	if !result.Public && result.UserID != userID {
-		c.Status(http.StatusForbidden)
-		return
-	}
-
-	preferred := getPreferredLanguage(c)
-	i := getTranslationIndex(preferred, result.GameTitle)
-	result.GameTitle.GameTitleTranslatable = result.GameTitle.Translations[i].GameTitleTranslatable
-
-	resultResponse, err := mapResultResponse(&result, c)
+	resultModel, err := getResultModel(resultID)
 	if err != nil {
 		c.Status(http.StatusInternalServerError)
 		return
 	}
-
-	if result.UserID == userID {
-		var nextResults []model.Result
-		if err := model.DB.
-			Where("time < ? AND game_title_id = ? AND user_id = ?", result.Time, result.GameTitleID, result.UserID).
-			Order("time DESC").
-			Limit(1).
-			Find(&nextResults).
-			Error; err != nil {
+	if resultModel == nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	userID, ok := getUserID(c)
+	if !ok {
+		c.Status(http.StatusBadRequest)
+		return
+	}
+	if !resultModel.Public && resultModel.UserID != userID {
+		c.Status(http.StatusForbidden)
+		return
+	}
+	resultResponse, err := mapResultResponse(resultModel, c)
+	if err != nil {
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+	if resultModel.UserID == userID {
+		nextResultsModel, err := getNextResultsModel(*resultModel)
+		if err != nil {
 			c.Status(http.StatusInternalServerError)
 			return
 		}
-		nextAvailable := len(nextResults) > 0
+		nextAvailable := len(nextResultsModel) > 0
 		var nextID uint
-		if len(nextResults) > 0 {
-			nextID = nextResults[0].ID
+		if len(nextResultsModel) > 0 {
+			nextID = nextResultsModel[0].ID
 		}
-
-		var prevResults []model.Result
-		if err := model.DB.
-			Where("time > ? AND game_title_id = ? AND user_id = ?", result.Time, result.GameTitleID, result.UserID).
-			Order("time ASC").
-			Limit(1).
-			Find(&prevResults).
-			Error; err != nil {
+		prevResultsModel, err := getPrevResultsModel(*resultModel)
+		if err != nil {
 			c.Status(http.StatusInternalServerError)
 			return
 		}
-		prevAvailable := len(prevResults) > 0
+		prevAvailable := len(prevResultsModel) > 0
 		var prevID uint
-		if len(prevResults) > 0 {
-			prevID = prevResults[0].ID
+		if len(prevResultsModel) > 0 {
+			prevID = prevResultsModel[0].ID
 		}
-
-		c.JSON(http.StatusOK, ResultResponseExt{
+		c.JSON(http.StatusOK, &ResultResponseExt{
 			ResultResponse: *resultResponse,
 			NextAvailable:  nextAvailable,
 			NextID:         nextID,
@@ -152,20 +142,19 @@ func PatchGacha(c *gin.Context) {
 	resultID := c.Param("resultID")
 	var patchGachaRequest PatchGachaRequest
 	c.Bind(&patchGachaRequest)
-	accessToken, _ := c.Get("access_token")
-	userID := accessToken.(oauth2.TokenInfo).GetUserID()
+	userID, ok := getUserID(c)
+	if !ok {
+		c.Status(http.StatusBadRequest)
+		return
+	}
 
-	var result model.Result
-	if err := model.DB.
-		Model(&model.Result{}).
-		Where("id = ? AND user_id = ?", resultID, userID).
-		First(&result).
-		Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.Status(http.StatusNotFound)
-			return
-		}
+	resultModel, err := getResultModelByIDAndUserID(resultID, userID)
+	if err != nil {
 		c.Status(http.StatusInternalServerError)
+		return
+	}
+	if resultModel == nil {
+		c.Status(http.StatusNotFound)
 		return
 	}
 
@@ -183,20 +172,19 @@ func PatchGacha(c *gin.Context) {
 
 func DeleteGacha(c *gin.Context) {
 	resultID := c.Param("resultID")
-	accessToken, _ := c.Get("access_token")
-	userID := accessToken.(oauth2.TokenInfo).GetUserID()
+	userID, ok := getUserID(c)
+	if !ok {
+		c.Status(http.StatusBadRequest)
+		return
+	}
 
-	var result model.Result
-	if err := model.DB.
-		Model(&model.Result{}).
-		Where("id = ? AND user_id = ?", resultID, userID).
-		First(&result).
-		Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.Status(http.StatusNotFound)
-			return
-		}
+	resultModel, err := getResultModelByIDAndUserID(resultID, userID)
+	if err != nil {
 		c.Status(http.StatusInternalServerError)
+		return
+	}
+	if resultModel == nil {
+		c.Status(http.StatusNotFound)
 		return
 	}
 
@@ -211,7 +199,101 @@ func DeleteGacha(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-func mapRequest(gachaRequest model.GachaRequest) gacha.Request {
+func getItemsModelByIDs(itemIDs []uint) ([]model.Item, error) {
+	var itemsModel []model.Item
+	if err := model.DB.
+		Scopes(itemsByIDs(itemIDs)).
+		Find(&itemsModel).
+		Error; err != nil {
+		return nil, err
+	}
+	return itemsModel, nil
+}
+
+func getTiersModelByIDs(tierIDs []uint) ([]model.Tier, error) {
+	var tiersModel []model.Tier
+	if err := model.DB.
+		Scopes(tiersByIDs(tierIDs)).
+		Find(&tiersModel).
+		Error; err != nil {
+		return nil, err
+	}
+	return tiersModel, nil
+}
+
+func itemsByIDs(itemIDs []uint) func(db *gorm.DB) *gorm.DB {
+	return func(db *gorm.DB) *gorm.DB {
+		return db.Model(&model.Item{}).
+			Preload("Tier.Translations").
+			Preload("Translations").
+			Where("id IN ?", itemIDs)
+	}
+}
+
+func tiersByIDs(tierIDs []uint) func(db *gorm.DB) *gorm.DB {
+	return func(db *gorm.DB) *gorm.DB {
+		return db.Model(&model.Tier{}).
+			Preload("Translations").
+			Where("id IN ?", tierIDs)
+	}
+}
+
+func getResultModel(resultID string) (*model.Result, error) {
+	var resultModel model.Result
+	if err := model.DB.
+		Preload("GameTitle.Translations").
+		First(&resultModel, resultID).
+		Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &resultModel, nil
+}
+
+func getNextResultsModel(resultModel model.Result) ([]model.Result, error) {
+	var nextResultsModel []model.Result
+	if err := model.DB.
+		Where("time < ? AND game_title_id = ? AND user_id = ?", resultModel.Time, resultModel.GameTitleID, resultModel.UserID).
+		Order("time DESC").
+		Limit(1).
+		Find(&nextResultsModel).
+		Error; err != nil {
+		return nil, err
+	}
+	return nextResultsModel, nil
+}
+
+func getPrevResultsModel(resultModel model.Result) ([]model.Result, error) {
+	var prevResultsModel []model.Result
+	if err := model.DB.
+		Where("time > ? AND game_title_id = ? AND user_id = ?", resultModel.Time, resultModel.GameTitleID, resultModel.UserID).
+		Order("time ASC").
+		Limit(1).
+		Find(&prevResultsModel).
+		Error; err != nil {
+		return nil, err
+	}
+	return prevResultsModel, nil
+}
+
+func getResultModelByIDAndUserID(resultID, userID string) (*model.Result, error) {
+	var resultModel model.Result
+	if err := model.DB.
+		Model(&model.Result{}).
+		Where("id = ? AND user_id = ?", resultID, userID).
+		First(&resultModel).
+		Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &resultModel, nil
+}
+
+func mapGachaRequest(gachaRequest GachaRequest) gacha.Request {
 	var tiers []gacha.Tier
 	for _, tier := range gachaRequest.Tiers {
 		var items []gacha.Item
@@ -276,7 +358,7 @@ func mapRequest(gachaRequest model.GachaRequest) gacha.Request {
 			}
 			return count, nil
 		},
-		GetItemFromIndex: func(tierID uint, index int) (gacha.Item, error) {
+		GetItemFromIndex: func(tierID uint, index int) (*gacha.Item, error) {
 			var item model.Item
 			if err := model.DB.
 				Model(&model.Item{}).
@@ -285,22 +367,22 @@ func mapRequest(gachaRequest model.GachaRequest) gacha.Request {
 				Preload("Tier").
 				First(&item).
 				Error; err != nil {
-				return gacha.Item{}, err
+				return nil, err
 			}
-			return gacha.Item{
+			return &gacha.Item{
 				ID:   item.ID,
 				Tier: &gacha.Tier{ID: item.Tier.ID},
 			}, nil
 		},
-		GetItemFromID: func(itemID uint) (gacha.Item, error) {
+		GetItemFromID: func(itemID uint) (*gacha.Item, error) {
 			var item model.Item
 			if err := model.DB.
 				Preload("Tier").
 				First(&item, "items.id=?", itemID).
 				Error; err != nil {
-				return gacha.Item{}, nil
+				return nil, err
 			}
-			return gacha.Item{
+			return &gacha.Item{
 				ID:   item.ID,
 				Tier: &gacha.Tier{ID: item.Tier.ID},
 			}, nil
@@ -330,162 +412,85 @@ func mapRequest(gachaRequest model.GachaRequest) gacha.Request {
 	}
 }
 
-func mapResult(
+func mapResultModel(
 	result gacha.Result,
 	request gacha.Request,
-	gachaRequest model.GachaRequest,
+	gachaRequest GachaRequest,
 	c *gin.Context,
 ) (*model.Result, error) {
 	requestJSON, err := json.Marshal(request)
 	if err != nil {
 		return nil, err
 	}
-	itemIDs := make([]uint, len(result.Items))
-	for i, item := range result.Items {
-		itemIDs[i] = item.ID
+	itemIDs := make([]uint, 0)
+	for _, item := range result.Items {
+		itemIDs = append(itemIDs, item.ID)
 	}
 	itemIDsJSON, err := json.Marshal(itemIDs)
 	if err != nil {
 		return nil, err
 	}
 	now := time.Now()
-
-	preferred := getPreferredLanguage(c)
-	var gameTitle model.GameTitle
-	if err := model.DB.
-		Preload("Translations").
-		First(&gameTitle, gachaRequest.GameTitle.ID).
-		Error; err != nil {
-		return nil, err
-	}
-	i := getTranslationIndex(preferred, gameTitle)
-	gameTitle.GameTitleTranslatable = gameTitle.Translations[i].GameTitleTranslatable
-	accessToken, ok := c.Get("access_token")
+	userID, ok := getUserID(c)
 	if !ok {
 		return nil, err
 	}
-	userID := accessToken.(oauth2.TokenInfo).GetUserID()
 	return &model.Result{
 		Request:       datatypes.JSON(requestJSON),
 		ItemIDs:       datatypes.JSON(itemIDsJSON),
 		GoalsAchieved: result.GoalsAchieved,
 		MoneySpent:    result.MoneySpent,
 		Time:          now,
-		GameTitle:     &gameTitle,
+		GameTitleID:   gachaRequest.GameTitle.ID,
 		UserID:        userID,
 		Public:        false,
 	}, nil
 }
 
 func mapResultResponse(
-	result *model.Result,
+	resultModel *model.Result,
 	c *gin.Context,
 ) (*ResultResponse, error) {
-	preferred := getPreferredLanguage(c)
+	var request gacha.Request
+	if err := json.Unmarshal(resultModel.Request, &request); err != nil {
+		return nil, err
+	}
 
-	uniqueItemIDs, err := makeUniqueItemIDs(result)
+	uniqueItemIDs, err := makeUniqueItemIDs(resultModel)
+	if err != nil {
+		return nil, err
+	}
+	itemsModel, err := getItemsModelByIDs(uniqueItemIDs)
+	if err != nil {
+		return nil, err
+	}
+	items := mapItems(itemsModel, c)
+
+	remainingWantedItemIDs := makeRemainingWantedItemIDs(request, items)
+	remainingWantedItemsModel, err := getItemsModelByIDs(remainingWantedItemIDs)
+	if err != nil {
+		return nil, err
+	}
+	remainingWantedItems := mapItems(remainingWantedItemsModel, c)
+
+	remainingWantedTierIDs := makeRemainingWantedTierIDs(request, items)
+	remainingWantedTiersModel, err := getTiersModelByIDs(remainingWantedTierIDs)
+	if err != nil {
+		return nil, err
+	}
+	remainingWantedTiers := mapTiers(remainingWantedTiersModel, c)
+
+	result, err := mapResult(*resultModel, c)
 	if err != nil {
 		return nil, err
 	}
 
-	var items []model.Item
-	if err := model.DB.
-		Scopes(itemsByIDs(uniqueItemIDs)).
-		Find(&items).
-		Error; err != nil {
-		return nil, err
-	}
-	for i := 0; i < len(items); i++ {
-		j := getTranslationIndex(preferred, items[i])
-		items[i].ItemTranslatable = items[i].Translations[j].ItemTranslatable
-		k := getTranslationIndex(preferred, items[i].Tier)
-		items[i].Tier.TierTranslatable = items[i].Tier.Translations[k].TierTranslatable
-	}
-
-	var request gacha.Request
-	if err := json.Unmarshal(result.Request, &request); err != nil {
-		return nil, err
-	}
-
-	remainingWantedItemIDs := make([]uint, 0)
-	if request.Plan.ItemGoals {
-		for wantedItemID := range request.Plan.WantedItems {
-			found := false
-			for _, item := range items {
-				if item.ID == wantedItemID {
-					found = true
-					break
-				}
-			}
-			if !found {
-				remainingWantedItemIDs = append(remainingWantedItemIDs, wantedItemID)
-			}
-		}
-	}
-	var remainingWantedItems []model.Item
-	if err := model.DB.
-		Scopes(itemsByIDs(remainingWantedItemIDs)).
-		Find(&remainingWantedItems).
-		Error; err != nil {
-		return nil, err
-	}
-	for i := 0; i < len(remainingWantedItems); i++ {
-		j := getTranslationIndex(preferred, remainingWantedItems[i])
-		remainingWantedItems[i].ItemTranslatable = remainingWantedItems[i].Translations[j].ItemTranslatable
-		k := getTranslationIndex(preferred, remainingWantedItems[i].Tier)
-		remainingWantedItems[i].Tier.TierTranslatable = remainingWantedItems[i].Tier.Translations[k].TierTranslatable
-	}
-
-	remainingWantedTierIDs := make([]uint, 0)
-	if request.Plan.TierGoals {
-		for wantedTierID := range request.Plan.WantedTiers {
-			found := false
-			for _, item := range items {
-				if item.Tier.ID == wantedTierID {
-					found = true
-					break
-				}
-			}
-			if !found {
-				remainingWantedTierIDs = append(remainingWantedTierIDs, wantedTierID)
-			}
-		}
-	}
-	var remainingWantedTiers []model.Tier
-	if err := model.DB.
-		Scopes(tiersByIDs(remainingWantedTierIDs)).
-		Find(&remainingWantedTiers).
-		Error; err != nil {
-		return nil, err
-	}
-	for i := 0; i < len(remainingWantedTiers); i++ {
-		j := getTranslationIndex(preferred, remainingWantedTiers[i])
-		remainingWantedTiers[i].TierTranslatable = remainingWantedTiers[i].Translations[j].TierTranslatable
-	}
-
 	return &ResultResponse{
-		Result:               result,
+		Result:               *result,
 		Items:                items,
 		RemainingWantedItems: remainingWantedItems,
 		RemainingWantedTiers: remainingWantedTiers,
 	}, nil
-}
-
-func itemsByIDs(itemIDs []uint) func(db *gorm.DB) *gorm.DB {
-	return func(db *gorm.DB) *gorm.DB {
-		return db.Model(&model.Item{}).
-			Preload("Tier.Translations").
-			Preload("Translations").
-			Where("id IN ?", itemIDs)
-	}
-}
-
-func tiersByIDs(tierIDs []uint) func(db *gorm.DB) *gorm.DB {
-	return func(db *gorm.DB) *gorm.DB {
-		return db.Model(&model.Tier{}).
-			Preload("Translations").
-			Where("id IN ?", tierIDs)
-	}
 }
 
 func makeUniqueItemIDs(result *model.Result) ([]uint, error) {
@@ -502,4 +507,42 @@ func makeUniqueItemIDs(result *model.Result) ([]uint, error) {
 		uniqueItemIDs = append(uniqueItemIDs, itemID)
 	}
 	return uniqueItemIDs, nil
+}
+
+func makeRemainingWantedItemIDs(request gacha.Request, items []Item) []uint {
+	remainingWantedItemIDs := make([]uint, 0)
+	if request.Plan.ItemGoals {
+		for wantedItemID := range request.Plan.WantedItems {
+			found := false
+			for _, item := range items {
+				if item.ID == wantedItemID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				remainingWantedItemIDs = append(remainingWantedItemIDs, wantedItemID)
+			}
+		}
+	}
+	return remainingWantedItemIDs
+}
+
+func makeRemainingWantedTierIDs(request gacha.Request, items []Item) []uint {
+	remainingWantedTierIDs := make([]uint, 0)
+	if request.Plan.TierGoals {
+		for wantedTierID := range request.Plan.WantedTiers {
+			found := false
+			for _, item := range items {
+				if item.Tier.ID == wantedTierID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				remainingWantedTierIDs = append(remainingWantedTierIDs, wantedTierID)
+			}
+		}
+	}
+	return remainingWantedTierIDs
 }
