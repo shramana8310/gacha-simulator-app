@@ -64,16 +64,22 @@ func PostGachas(c *gin.Context) {
 		return
 	}
 
-	if err := model.DB.Create(resultModel).Error; err != nil {
+	tx := model.DB.Begin()
+
+	if err := tx.Create(resultModel).Error; err != nil {
+		tx.Rollback()
 		c.Status(http.StatusInternalServerError)
 		return
 	}
 
 	resultResponse, err := mapResultResponse(resultModel, c)
 	if err != nil {
+		tx.Rollback()
 		c.Status(http.StatusInternalServerError)
 		return
 	}
+
+	tx.Commit()
 
 	c.JSON(http.StatusOK, resultResponse)
 }
@@ -433,7 +439,7 @@ func mapResultModel(
 	now := time.Now()
 	userID, ok := getUserID(c)
 	if !ok {
-		return nil, err
+		return nil, errors.New("failed to get userID")
 	}
 	return &model.Result{
 		Request:       datatypes.JSON(requestJSON),
