@@ -512,12 +512,10 @@ func mapGameTitleTranslationsModel(translationsInput []GameTitleTranslationInput
 
 func mapGameTitleTranslationModel(translationInput GameTitleTranslationInput) *model.GameTitleTranslation {
 	return &model.GameTitleTranslation{
-		Language: translationInput.Language,
-		GameTitleTranslatable: model.GameTitleTranslatable{
-			Name:        translationInput.Name,
-			ShortName:   translationInput.ShortName,
-			Description: translationInput.Description,
-		},
+		Language:    translationInput.Language,
+		Name:        translationInput.Name,
+		ShortName:   translationInput.ShortName,
+		Description: translationInput.Description,
 	}
 }
 
@@ -532,11 +530,9 @@ func mapTierTranslationsModel(translationsInput []TierTranslationInput) []model.
 
 func mapTierTranslationModel(translationInput TierTranslationInput) *model.TierTranslation {
 	return &model.TierTranslation{
-		Language: translationInput.Language,
-		TierTranslatable: model.TierTranslatable{
-			Name:      translationInput.Name,
-			ShortName: translationInput.ShortName,
-		},
+		Language:  translationInput.Language,
+		Name:      translationInput.Name,
+		ShortName: translationInput.ShortName,
 	}
 }
 
@@ -551,11 +547,9 @@ func mapItemTranslationsModel(translationsInput []ItemTranslationInput) []model.
 
 func mapItemTranslationModel(translationInput ItemTranslationInput) *model.ItemTranslation {
 	return &model.ItemTranslation{
-		Language: translationInput.Language,
-		ItemTranslatable: model.ItemTranslatable{
-			Name:      translationInput.Name,
-			ShortName: translationInput.ShortName,
-		},
+		Language:  translationInput.Language,
+		Name:      translationInput.Name,
+		ShortName: translationInput.ShortName,
 	}
 }
 
@@ -571,9 +565,7 @@ func mapPricingTranslationsModel(translationsInput []PricingTranslationInput) []
 func mapPricingTranslationModel(translationInput PricingTranslationInput) *model.PricingTranslation {
 	return &model.PricingTranslation{
 		Language: translationInput.Language,
-		PricingTranslatable: model.PricingTranslatable{
-			Name: translationInput.Name,
-		},
+		Name:     translationInput.Name,
 	}
 }
 
@@ -589,9 +581,7 @@ func mapPoliciesTranslationsModel(translationsInput []PoliciesTranslationInput) 
 func mapPoliciesTranslationModel(translationInput PoliciesTranslationInput) *model.PoliciesTranslation {
 	return &model.PoliciesTranslation{
 		Language: translationInput.Language,
-		PoliciesTranslatable: model.PoliciesTranslatable{
-			Name: translationInput.Name,
-		},
+		Name:     translationInput.Name,
 	}
 }
 
@@ -607,9 +597,7 @@ func mapPlanTranslationsModel(translationsInput []PlanTranslationInput) []model.
 func mapPlanTranslationModel(translationInput PlanTranslationInput) *model.PlanTranslation {
 	return &model.PlanTranslation{
 		Language: translationInput.Language,
-		PlanTranslatable: model.PlanTranslatable{
-			Name: translationInput.Name,
-		},
+		Name:     translationInput.Name,
 	}
 }
 
@@ -624,10 +612,8 @@ func mapPresetTranslationsModel(translationsInput []PresetTranslationInput) []mo
 
 func mapPresetTranslationModel(translationInput PresetTranslationInput) *model.PresetTranslation {
 	return &model.PresetTranslation{
-		Language: translationInput.Language,
-		PresetTranslatable: model.PresetTranslatable{
-			Name:        translationInput.Name,
-			Description: translationInput.Description,
-		},
+		Language:    translationInput.Language,
+		Name:        translationInput.Name,
+		Description: translationInput.Description,
 	}
 }
