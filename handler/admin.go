@@ -40,7 +40,7 @@ type TierTranslationInput struct {
 type ItemInput struct {
 	TierKey      string                 `json:"tierKey"`
 	Key          *string                `json:"key"`
-	Ratio        int                    `json:"ratio"`
+	Ratio        *int                   `json:"ratio"`
 	ImageURL     string                 `json:"imageUrl"`
 	Translations []ItemTranslationInput `json:"translations"`
 }
@@ -282,7 +282,6 @@ func mapItemModel(
 ) (*model.Item, error) {
 	translations := mapItemTranslationsModel(itemInput.Translations)
 	itemModel := model.Item{
-		Ratio:        itemInput.Ratio,
 		ImageURL:     itemInput.ImageURL,
 		Translations: translations,
 	}
@@ -290,6 +289,11 @@ func mapItemModel(
 		itemModel.TierID = tier.ID
 	} else {
 		return nil, errors.New("invalid TierKey: " + itemInput.TierKey)
+	}
+	if itemInput.Ratio != nil && *itemInput.Ratio > 0 {
+		itemModel.Ratio = *itemInput.Ratio
+	} else {
+		itemModel.Ratio = 1
 	}
 	if itemInput.Key != nil && *itemInput.Key != "" {
 		itemKeyToModel[*itemInput.Key] = &itemModel
