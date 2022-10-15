@@ -35,12 +35,13 @@ type TierWithNumber struct {
 }
 
 type Item struct {
-	ID        uint   `json:"id"`
-	Ratio     int    `json:"ratio"`
-	ImageURL  string `json:"imageUrl"`
-	Tier      *Tier  `json:"tier"`
-	Name      string `json:"name"`
-	ShortName string `json:"shortName"`
+	ID           uint   `json:"id"`
+	Ratio        int    `json:"ratio"`
+	ImageURL     string `json:"imageUrl"`
+	Tier         *Tier  `json:"tier"`
+	Name         string `json:"name"`
+	ShortName    string `json:"shortName"`
+	ShortNameAlt string `json:"shortNameAlt"`
 }
 
 type ItemWithNumber struct {

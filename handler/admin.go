@@ -46,9 +46,10 @@ type ItemInput struct {
 }
 
 type ItemTranslationInput struct {
-	Language  string `json:"language"`
-	Name      string `json:"name" gorm:"index"`
-	ShortName string `json:"shortName" gorm:"index"`
+	Language     string `json:"language"`
+	Name         string `json:"name"`
+	ShortName    string `json:"shortName"`
+	ShortNameAlt string `json:"shortNameAlt"`
 }
 
 type PricingInput struct {
@@ -551,9 +552,10 @@ func mapItemTranslationsModel(translationsInput []ItemTranslationInput) []model.
 
 func mapItemTranslationModel(translationInput ItemTranslationInput) *model.ItemTranslation {
 	return &model.ItemTranslation{
-		Language:  translationInput.Language,
-		Name:      translationInput.Name,
-		ShortName: translationInput.ShortName,
+		Language:     translationInput.Language,
+		Name:         translationInput.Name,
+		ShortName:    translationInput.ShortName,
+		ShortNameAlt: translationInput.ShortNameAlt,
 	}
 }
 

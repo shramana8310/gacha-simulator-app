@@ -58,12 +58,13 @@ type Item struct {
 }
 
 type ItemTranslation struct {
-	ID        uint
-	Name      string `gorm:"index"`
-	ShortName string `gorm:"index"`
-	Language  string
-	Item      *Item
-	ItemID    uint
+	ID           uint
+	Name         string `gorm:"index"`
+	ShortName    string `gorm:"index"`
+	ShortNameAlt string `gorm:"index"`
+	Language     string
+	Item         *Item
+	ItemID       uint
 }
 
 type Pricing struct {

@@ -234,7 +234,12 @@ func getItemsModel(gameTitleSlug string, name string) ([]model.Item, error) {
 		Joins("JOIN tiers on tiers.id=items.tier_id").
 		Joins("JOIN game_titles on game_titles.id=tiers.game_title_id").
 		Where("game_titles.slug", gameTitleSlug).
-		Where("lower(item_translations.name) LIKE ? OR lower(item_translations.short_name) LIKE ?", nameOperand, nameOperand).
+		Where(
+			"lower(item_translations.name) LIKE ? OR lower(item_translations.short_name) LIKE ? OR lower(item_translations.short_name_alt) LIKE ?",
+			nameOperand,
+			nameOperand,
+			nameOperand,
+		).
 		Preload("Tier.Translations").
 		Preload("Translations").
 		Distinct().
@@ -408,12 +413,13 @@ func mapItem(itemModel model.Item, c *gin.Context) *Item {
 	i := getTranslationIndex(preferred, itemModel)
 	tier := mapTier(*itemModel.Tier, c)
 	return &Item{
-		ID:        itemModel.ID,
-		Ratio:     itemModel.Ratio,
-		ImageURL:  itemModel.ImageURL,
-		Tier:      tier,
-		Name:      itemModel.Translations[i].Name,
-		ShortName: itemModel.Translations[i].ShortName,
+		ID:           itemModel.ID,
+		Ratio:        itemModel.Ratio,
+		ImageURL:     itemModel.ImageURL,
+		Tier:         tier,
+		Name:         itemModel.Translations[i].Name,
+		ShortName:    itemModel.Translations[i].ShortName,
+		ShortNameAlt: itemModel.Translations[i].ShortNameAlt,
 	}
 }
 
